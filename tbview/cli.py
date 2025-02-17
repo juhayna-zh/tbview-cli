@@ -3,6 +3,7 @@ import os
 import sys
 import inquirer
 from tbview.viewer import TensorboardViewer
+from tbview.parser import read_records
 
 def check_file_or_directory(path):
     if not os.path.exists(path):
@@ -66,12 +67,39 @@ def run_main(args):
     
     target_event_tag = target_event_name if target_event_dir is None else target_event_dir
 
-    tbviewer = TensorboardViewer(target_event_path, target_event_tag)
-    tbviewer.run()
+    if args.h5:
+        import h5py
+        import numpy as np
+        records = {}
+        for event in read_records(target_event_path):
+            summary = event.summary
+            for value in summary.value:
+                if value.HasField('simple_value'):
+                    # print(value.tag, value.simple_value, event.step)
+                    if value.tag not in records:
+                        records[value.tag] = {}
+                    records[value.tag][event.step] = value.simple_value
+        
+        with h5py.File(os.path.dirname(target_event_path)+os.sep+'[hdf5]' + os.path.basename(target_event_path)+'.h5', 'w') as hf:
+            for tag in records:
+                group = hf.create_group(tag)
+                
+                steps = sorted(records[tag].keys())
+                values = [records[tag][step] for step in steps]
+                
+                steps_array = np.array(steps, dtype='int64')
+                values_array = np.array(values, dtype='float32')
+                
+                group.create_dataset('steps', data=steps_array)
+                group.create_dataset('values', data=values_array)
+    else:
+        tbviewer = TensorboardViewer(target_event_path, target_event_tag)
+        tbviewer.run()
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('path', help='path to tensorboard log directory or event file', type=check_file_or_directory)
+    parser.add_argument('-h5', action='store_true', help='convert to h5 file')
     parser.usage = f'{sys.argv[0]} path'
 
     args = parser.parse_args()
